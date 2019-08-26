@@ -1,0 +1,351 @@
+/* Michael PÉRIN, Verimag / Univ. Grenoble Alpes, december 2017
+ *
+ * A JavaCC parser for a toy imperative language
+ *
+ * The parser produces an automaton in the dot format for Graphviz (https://graphviz.gitlab.io)
+ *
+ * The Graphviz viewer shows the automaton
+ */
+
+PARSER_BEGIN(AlgorithmParser)
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ListIterator;
+
+public class AlgorithmParser {
+
+    public static void main(String[] args) throws Exception {
+        Algorithm algorithm = new AlgorithmParser(new java.io.StringReader(args[0])).Run() ;
+        	System.out.println("/* PARSED ALGORITHM as TEXT:");
+        	System.out.println(algorithm.toString());
+        	System.out.println("*/");
+  	    System.out.println("\n");
+    		System.out.println("/* PARSED ALGORITHM as AUTOMATON */\n");
+        System.out.println(algorithm.toDot());
+    }
+}
+
+PARSER_END(AlgorithmParser)
+
+
+SKIP:  { " " | "\t" | "\n" | "\r" }
+
+TOKEN:
+{ "if" | "then" | "else" | "return"
+//PARTIE A COMPLETER
+}
+
+TOKEN:
+{ < BOOL: "true" | "false" > }
+
+TOKEN:
+{ "(" | ")" | "[" | "]" }
+
+TOKEN:
+{ < BINOP: "+" | "-" | "*" | "/" | "%" | "mod" | "div" | "&&" | "||" | "<" | ">" | "==" | ">=" | "<=" > }
+
+TOKEN:
+{ < UNOP: "not" | "~" > }
+
+TOKEN: { < #LETTER: ["a"-"z"] | ["A"-"Z"] > }
+
+TOKEN: { < #DIGIT: ["0"-"9"] > }
+
+TOKEN:
+{ < ID: <LETTER> (<LETTER>|<DIGIT>|"_")* > }
+
+TOKEN:
+{ < INT: (<DIGIT>)+ > }
+
+
+/* == The grammar of the language for writing algorithm
+
+ Run
+  	| Algorithm <EOF>
+
+ Algorithm
+	| Instruction_Sequence
+
+ Instruction_Sequence
+	| Instruction  More_Instructions
+    | Epsilon
+
+ More_Instructions
+	| ";" Instruction_Sequence
+	| Epsilon
+
+ Instruction
+  	| Return
+  	| Assignment
+	| Loop
+	| Break
+  	| IfThenElse
+
+ Return
+	| "return" Optional_Expression
+
+ Assignment
+	| Var ":=" Arithmetic_Expression
+
+ IfThenElse
+   	| "if" Condition "then" Block "else" Block
+
+ Condition
+   	| "(" Boolean_Expression ")"
+
+ Block
+	| "{" Instruction_Sequence "}"
+
+ Loop
+ 	| "loop" Block
+
+ Break
+	| "break"
+
+ Optional_Expression:
+	| Expression
+	| Epsilon
+
+ Integer_Expression
+ 	| Expression
+
+ Boolean_Expression
+	| Expression
+
+ Expression
+	| Term  Op_Expression
+
+ Op_Expression
+	| BINOP  Expression
+	| Epsilon
+
+ Term
+	| UNOP Atomic_Expr
+	|  Atomic_Expr
+
+ Atomic_Expr
+	| BOOL
+	| INT
+	| Var
+	| "(" Expression ")"
+
+ Var
+	| Identifier  Indexes
+
+ Indexes
+	| "[" Integer_Expression "]"  Indexes
+	| Epsilon
+*/
+
+/**
+ ** See Ast.java for the defintions of types returned by Parsers
+ **/
+
+// PART 1
+
+// Expression = Boolean Expression U Integer Expression
+
+Integer_Expression P_Integer_Expression():
+{ Expression exp; }
+{
+  exp = P_Expression()  { return new IntExp(exp); }
+}
+
+
+Boolean_Expression P_Boolean_Expression():
+{ Expression exp; }
+{
+  exp = P_Expression()  { return new BoolExp(exp); }
+}
+
+
+Expression P_Expression():
+{ Ast t, e; }
+{
+   t = P_Term() e=P_Op_Expression(t) {  return new Expression(e); }
+}
+
+
+Ast P_Op_Expression(Ast term):
+{ Token token; Ast exp; }
+{
+  token=<BINOP>   exp = P_Expression()   { return new BinOp(term, token.image, exp); }
+| /*epsilon*/                            { return term ; }
+}
+
+
+Ast P_Term():
+{ Token token; Ast a;}
+{
+  a = P_Atomic_Expr()  token = <UNOP>              { return new UnOp(token.image,a); }
+|  a = P_Atomic_Expr() {  return a; }
+}
+
+
+Ast P_Atomic_Expr():
+{ Token token; Ast e; }
+{
+  token=<INT>                  { return new IntCst(token.image); }
+| token=<BOOL> 				   { return new BoolCst(token.image); }
+  | e = P_Var() {  return e; }
+  | "(" e=P_Expression() ")" { return new Expression(e); }
+}
+
+
+// PART 2
+
+// Var = Identifier U Array[Expr]...[Expr]
+
+Var P_Var():
+{ Identifier identifier;
+  Indexes indexes;
+}
+{
+  identifier = P_Identifier()     indexes = P_Indexes( new Indexes() ) | identifier = P_Identifier()
+  {
+  //PARTIE A COMPLETER
+  if (indexes.isEmpty()) { 
+  		return identifier;
+  }
+  else {
+		return new ArrayCell(identifier,indexes);
+	//PARTIE A COMPLETER
+  }
+}
+
+
+Identifier P_Identifier():
+{}
+{
+  token=<ID> { return new Identifier(token.image); }
+}
+
+
+Indexes P_Indexes(Indexes indexes):
+{ Integer_Expression e; Indexes resultat}
+{
+
+	"[" e=P_Integer_Expression() "]" resultat = P_Indexes(indexes.end_with(e)) { return resultat;}
+| { return indexes; }
+}
+
+
+// PART 3 : RETURN, ASSIGNMENT, BREAK
+
+Instruction P_Return(State entry, State return_exit):
+{ Optional opt_expr; }
+{
+  "return" opt_expr = P_Optional_Expression()  {  return new Transition(entry, new Return(opt_expr), return_exit); }
+}
+
+Optional P_Optional_Expression():
+{ Expression exp; }
+{
+  exp = P_Expression()   { return new Optional(exp); }
+| /*epsilon*/            { return new Optional();    }
+}
+
+/*
+Instruction P_Assignment(State entry, State exit):
+{ Var var; Expression exp; }
+{
+//PARTIE A COMPLETER
+}
+*/
+
+/*
+Instruction P_Break(State entry, State break_exit):
+{ }
+{
+//PARTIE A COMPLETER
+}
+*/
+
+
+// PART 4 : SEQUENCE
+
+Algorithm Run():
+{ Sequence seq; }
+{
+	seq = P_Algorithm()   <EOF>     { return new Algorithm(seq); }
+}
+
+Sequence P_Algorithm():
+{ Sequence seq;
+  State entry = new State();
+  State exit  = new State();
+}
+{
+	seq = P_Instruction_Sequence(entry, exit, exit, exit)  { seq.set_exit_state(exit); return seq; }
+}
+
+
+Sequence P_Instruction_Sequence(State entry, State exit, State break_exit, State return_exit):
+{
+  Instruction inst;
+  Sequence seq;
+  State next_state = new State();
+}
+{	inst = P_Instruction(entry, next_state,        break_exit, return_exit)
+  seq  = P_More_Instructions (next_state,  exit, break_exit, return_exit)    { return seq.begin_with(inst); }
+| /*epsilon*/                                                                { return new Sequence(entry,exit); }
+}
+
+
+Sequence P_More_Instructions(State entry, State exit, State break_exit, State return_exit):
+{ Sequence seq; }
+{
+   ";"  seq = P_Instruction_Sequence(entry, exit, break_exit, return_exit)  { return seq; }
+|  /*epsilon*/                                                              { return new Sequence(entry,exit); }
+}
+
+
+Instruction P_Instruction(State entry, State exit, State break_exit, State return_exit):
+{ Instruction inst; }
+{
+    inst = P_Return(entry, return_exit)                         { return inst; }
+/*
+  |	 inst = P_Assignment(entry,exit)                             { return inst; }
+  |  inst = P_Loop(entry, exit, return_exit)                     { return inst; }
+  |  inst = P_Break(.........., ....................)               { return inst; }
+  |  inst = P_IfThenElse(entry, exit, break_exit, return_exit)   { return inst; }
+*/
+}
+
+
+// PART 5 : BLOCK
+
+Block P_Block(State entry, State exit, State break_exit, State return_exit):
+{ Sequence seq; }
+{
+  "{" seq = P_Instruction_Sequence(entry, exit, break_exit, return_exit) "}"   { seq.set_exit_state(exit) ; return new Block(seq); }
+}
+
+
+// PART 6 : loop { ... }
+
+/*
+Instruction P_Loop(State entry, State exit, State return_exit):
+{ Block block ; }
+{
+  "loop"  block = P_Block(..............................................................)  { return new Loop(block) ; }
+}
+*/
+
+
+// PART 7 : if (...) then { ... } else { ... }
+
+/*
+Instruction P_IfThenElse(State entry, State exit, State break_exit, State return_exit):
+{ Boolean_Expression boolean_expr ;
+  Block then_block, else_block;
+  State then_entry = new State();
+  State else_entry = new State();
+}
+{
+  "if" "(" boolean_expr = P_Boolean_Expression() ")"
+  "then"  then_block = P_Block(...................., exit, break_exit, return_exit)
+  "else"  else_block = P_Block(...................., exit, break_exit, return_exit)
+  { return new IfThenElse(entry, boolean_expr, then_entry, then_block, else_entry, else_block); }
+}
+*/
